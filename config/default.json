@@ -14,5 +14,9 @@
   },
   "nextdoor": {
     "session_token": "YOUR_NEXTDOOR_TOKEN_HERE"
+  },
+  "base44": {
+    "webhook_url": "https://robert-app.base44.app/api/functions/receive_lead",
+    "api_token": "YOUR_BASE44_API_TOKEN"
   }
 }

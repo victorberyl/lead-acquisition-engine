@@ -25,7 +25,7 @@ reddit_scraper = RedditScraper()
 facebook_scraper = FacebookScraper()
 nextdoor_scraper = NextdoorScraper()
 filter_engine = FilterEngine(client_config)
-notifier = Notifier()
+notifier = Notifier(client_config)
 
 TARGET_SUBREDDITS = ["HomeImprovement", "DIY", "Plumbing", "insurance", "Homeowners"]
 TARGET_FB_GROUPS = ["LocalHomeowners", "StormDamageRestoration"]
