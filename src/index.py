@@ -21,15 +21,16 @@ with open(config_path, "r") as f:
     client_config = json.load(f)
 
 # Initialize Scrapers and Engines
-reddit_scraper = RedditScraper()
-facebook_scraper = FacebookScraper()
-nextdoor_scraper = NextdoorScraper()
+reddit_scraper = RedditScraper(client_config)
+facebook_scraper = FacebookScraper(client_config)
+nextdoor_scraper = NextdoorScraper(client_config)
 filter_engine = FilterEngine(client_config)
 notifier = Notifier(client_config)
 
+# Pull target lists directly from client_config
 TARGET_SUBREDDITS = ["HomeImprovement", "DIY", "Plumbing", "insurance", "Homeowners"]
-TARGET_FB_GROUPS = ["LocalHomeowners", "StormDamageRestoration"]
-TARGET_NEIGHBORHOODS = ["downtown-metro", "suburb-heights"]
+TARGET_FB_GROUPS = client_config.get("facebook", {}).get("target_groups", ["CutlerBayCommunity", "MiamiHomeowners", "SouthFloridaHomeImprovement"])
+TARGET_NEIGHBORHOODS = client_config.get("nextdoor", {}).get("target_neighborhoods", ["cutler-bay--fl", "palmetto-bay--fl", "pinecrest--fl"])
 TARGET_KEYWORDS = ["water damage", "flood restoration", "mold", "public adjuster", "roof leak"]
 
 def run_lead_acquisition_cycle():

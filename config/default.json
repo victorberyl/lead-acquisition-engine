@@ -1,22 +1,28 @@
 {
-  "twilio": {
-    "account_sid": "YOUR_SID_HERE",
-    "auth_token": "YOUR_TOKEN_HERE",
-    "phone_number": "+15550000000"
-  },
-  "reddit": {
-    "client_id": "YOUR_CLIENT_ID",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "user_agent": "LeadEngine/1.0"
-  },
   "facebook": {
-    "session_cookie": "YOUR_FB_COOKIE_HERE"
+    "c_user": "61595845748891",
+    "xs": "26%3AwEJZ_I9uUxe_ug%3A2%3A1793300516%3A-1%3A-1%3A%3AAc0yVp23C1o4h2orJnEiM0x68sATvLjQMwkbhMIy9w",
+    "target_groups": [
+      "CutlerBayCommunity",
+      "MiamiHomeowners",
+      "SouthFloridaHomeImprovement"
+    ]
   },
   "nextdoor": {
-    "session_token": "YOUR_NEXTDOOR_TOKEN_HERE"
+    "session_token": "CkUrt1TaQwCCE34in6fFDBLXa9m8av2Aht96DXfLth4",
+    "target_neighborhoods": [
+      "cutler-bay--fl",
+      "palmetto-bay--fl",
+      "pinecrest--fl"
+    ]
+  },
+  "twilio": {
+    "account_sid": "YOUR_TWILIO_SID",
+    "auth_token": "YOUR_TWILIO_AUTH_TOKEN",
+    "from_number": "+1XXXXXXXXXX",
+    "to_number": "+1XXXXXXXXXX"
   },
   "base44": {
-    "webhook_url": "https://robert-app.base44.app/api/functions/receive_lead",
-    "api_token": "YOUR_BASE44_API_TOKEN"
+    "webhook_url": "YOUR_BASE44_WEBHOOK_URL"
   }
 }
