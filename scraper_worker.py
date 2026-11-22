@@ -7,8 +7,8 @@ import requests
 
 # --- CONFIGURATION ---
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "").strip()
-INGEST_URL = "https://claimheads.base44.app/api/functions/ingestLead"
-LOG_RUN_URL = "https://claimheads.base44.app/api/functions/logScraperRun"
+INGEST_URL = "https://claimhadesapp.1000mech.com/api/functions/ingestLead"
+LOG_RUN_URL = "https://claimhadesapp.1000mech.com/api/functions/logScraperRun"
 
 TARGETS = [
     {"category": "Roofing", "city": "Miami", "state": "FL", "zip": "33101"},
