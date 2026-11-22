@@ -21,4 +21,6 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run Multi-Platform Lead Scraper
+        env:
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
         run: python scraper_worker.py

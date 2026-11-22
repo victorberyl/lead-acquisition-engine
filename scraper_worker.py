@@ -1,224 +1,185 @@
-﻿import sys
+﻿import os
+import re
+import sys
+import time
 import json
 import requests
-from bs4 import BeautifulSoup
-import time
-import random
-import re
-from urllib.parse import quote_plus
 
-WEBHOOK_URL = "https://quizzical-claim-master-flow.base44.app/functions/ingestLead"
-LOG_WEBHOOK_URL = "https://quizzical-claim-master-flow.base44.app/functions/logScraperRun"
+# --- CONFIGURATION ---
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "").strip()
+INGEST_URL = "https://claimheads.base44.app/api/functions/ingestLead"
+LOG_RUN_URL = "https://claimheads.base44.app/api/functions/logScraperRun"
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+TARGETS = [
+    {"category": "Roofing", "city": "Miami", "state": "FL", "zip": "33101"},
+    {"category": "Plumbing", "city": "Miami", "state": "FL", "zip": "33125"},
+    {"category": "Restoration", "city": "Miami", "state": "FL", "zip": "33176"},
+    {"category": "HVAC", "city": "Fort Lauderdale", "state": "FL", "zip": "33301"},
+    {"category": "General Contractor", "city": "West Palm Beach", "state": "FL", "zip": "33401"},
 ]
 
-SEARCH_TARGETS = [
-    {"category": "Property Manager", "zip_code": "33157", "location": "Cutler Bay FL"},
-    {"category": "Property Manager", "zip_code": "33156", "location": "Pinecrest FL"},
-    {"category": "Roofer", "zip_code": "33157", "location": "Palmetto Bay FL"},
-    {"category": "HOA Management", "zip_code": "33176", "location": "Miami FL"},
-    {"category": "Restoration", "zip_code": "33176", "location": "Miami FL"}
+PLATFORMS = [
+    {"name": "Web Directory", "site_filter": ""},
+    {"name": "Facebook", "site_filter": "site:facebook.com "},
+    {"name": "Nextdoor", "site_filter": "site:nextdoor.com "},
+    {"name": "Reddit", "site_filter": "site:reddit.com "},
 ]
 
-JUNK_KEYWORDS = [
-    "top 10", "best ", "yelp", "yellowpages", "angi", "homeadvisor", "thumbtack",
-    "login", "sign up", "accedi", "facebook", "nextdoor", "reddit", "contact us",
-    "what's changed", "guideline", "ads.", "how can i", "anyone ", "tell me why",
-    "are there any", "a listing of", "to anyone living", "stuck in a", "home"
-]
+PHONE_REGEX = re.compile(r"(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}")
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
-STATS = {
-    "new_created": 0,
-    "duplicates_skipped": 0,
-    "rejected_errors": 0,
-    "http_blocks": 0,
-    "by_source": {
-        "Web Directory": 0,
-        "Facebook": 0,
-        "Nextdoor": 0,
-        "Reddit": 0
+
+def search_serper(query: str, stats: dict) -> list:
+    if not SERPER_API_KEY:
+        print("[!] Missing SERPER_API_KEY environment variable.")
+        stats["errors"] += 1
+        return []
+
+    url = "https://google.serper.dev/search"
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json",
     }
-}
+    payload = {"q": query, "num": 10}
 
-def get_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://duckduckgo.com/"
-    }
-
-def extract_phone(text):
-    match = re.search(r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
-    return match.group(0) if match else ""
-
-def extract_email(text, fallback_domain):
-    match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
-    return match.group(0) if match else f"info@{fallback_domain}.com"
-
-def is_valid_business(name):
-    lower = name.lower().strip()
-    if len(lower) < 5 or len(lower) > 65:
-        return False
-    if "?" in lower or lower.endswith("..."):
-        return False
-    if any(bad == lower or bad in lower for bad in JUNK_KEYWORDS):
-        return False
-    return True
-
-def send_to_base44(payload, source_name):
     try:
-        res = requests.post(
-            WEBHOOK_URL,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-        if res.status_code == 200 and res.json().get("status") == "duplicate":
-            STATS["duplicates_skipped"] += 1
-            print(f"  [=] Duplicate skipped: {payload['business_name']}")
-            return False
-        elif res.status_code == 201:
-            STATS["new_created"] += 1
-            STATS["by_source"][source_name] = STATS["by_source"].get(source_name, 0) + 1
-            lead_id = res.json().get("id", "OK")
-            print(f"  [+] NEW Lead (ID: {lead_id}): {payload['business_name']} | {payload['phone'] or 'No Phone'}")
-            return True
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code == 429:
+            print("[!] Serper rate limit (HTTP 429). Cooling down 10s...")
+            stats["http_blocks"] += 1
+            time.sleep(10)
+            resp = requests.post(url, headers=headers, json=payload, timeout=20)
+
+        if resp.status_code != 200:
+            print(f"[-] Serper error (HTTP {resp.status_code}): {resp.text[:120]}")
+            stats["http_blocks"] += 1
+            return []
+
+        data = resp.json()
+        return data.get("organic", [])
+    except Exception as exc:
+        print(f"[-] Request exception: {exc}")
+        stats["errors"] += 1
+        return []
+
+
+def clean_business_name(title: str, platform: str) -> str:
+    name = title.split("|")[0].split(" - ")[0].strip()
+    if platform == "Facebook":
+        name = re.sub(r"\s*-\s*Home\s*$", "", name, flags=re.I)
+    return name[:100].strip() or "Local Contractor"
+
+
+def ingest_lead(lead_payload: dict, stats: dict):
+    try:
+        resp = requests.post(INGEST_URL, json=lead_payload, timeout=15)
+        if resp.status_code == 201:
+            stats["new_leads"] += 1
+            src = lead_payload["source"]
+            stats["by_source"][src] = stats["by_source"].get(src, 0) + 1
+            print(f"    [+] Added: {lead_payload['business_name']} ({src})")
+        elif resp.status_code == 200:
+            stats["duplicates"] += 1
         else:
-            STATS["rejected_errors"] += 1
-            print(f"  [-] Webhook Error ({res.status_code}): {res.text}")
-            return False
-    except Exception as e:
-        STATS["rejected_errors"] += 1
-        print(f"  [-] Connection Error: {e}")
-        return False
+            stats["errors"] += 1
+            print(f"    [!] Ingest HTTP {resp.status_code}: {resp.text[:100]}")
+    except Exception as exc:
+        stats["errors"] += 1
+        print(f"    [!] Ingest exception: {exc}")
 
-def report_run_to_dashboard(run_status):
-    log_payload = {
-        "status": run_status,
-        "new_leads": STATS["new_created"],
-        "duplicates_skipped": STATS["duplicates_skipped"],
-        "http_blocks": STATS["http_blocks"],
-        "errors": STATS["rejected_errors"],
-        "source_breakdown": json.dumps(STATS["by_source"])
+
+def log_run_telemetry(stats: dict):
+    if stats["new_leads"] > 0 and stats["errors"] == 0 and stats["http_blocks"] == 0:
+        status = "Success"
+    elif stats["new_leads"] > 0 or stats["duplicates"] > 0:
+        status = "Partial"
+    else:
+        status = "Failed"
+
+    telemetry = {
+        "status": status,
+        "new_leads": stats["new_leads"],
+        "duplicates_skipped": stats["duplicates"],
+        "http_blocks": stats["http_blocks"],
+        "errors": stats["errors"],
+        "source_breakdown": json.dumps(stats["by_source"]),
     }
+
     try:
-        res = requests.post(
-            LOG_WEBHOOK_URL,
-            json=log_payload,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-        if res.status_code in (200, 201):
-            print("[✔] Telemetry logged to Claim Heads Admin Dashboard.")
+        resp = requests.post(LOG_RUN_URL, json=telemetry, timeout=15)
+        if resp.status_code in (200, 201):
+            print("[✓] Telemetry logged to Claim Heads Admin Dashboard.")
         else:
-            print(f"[!] Could not log run telemetry ({res.status_code}): {res.text}")
-    except Exception as e:
-        print(f"[!] Telemetry connection warning: {e}")
+            print(f"[!] Telemetry HTTP {resp.status_code}: {resp.text[:100]}")
+    except Exception as exc:
+        print(f"[!] Telemetry exception: {exc}")
 
-def scrape_source(target, source_name, query_suffix=""):
-    category = target["category"]
-    zip_code = target["zip_code"]
-    location = target["location"]
+    return status
 
-    query = f"{category} {location} {zip_code} {query_suffix}".strip()
-    url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
 
-    print(f"[*] [{source_name}] Searching: {category} in {location} ({zip_code})...")
+def main():
+    stats = {
+        "new_leads": 0,
+        "duplicates": 0,
+        "http_blocks": 0,
+        "errors": 0,
+        "by_source": {p["name"]: 0 for p in PLATFORMS},
+    }
 
-    try:
-        response = requests.get(url, headers=get_headers(), timeout=15)
-        if response.status_code == 202:
-            STATS["http_blocks"] += 1
-            print("  [!] Rate limited (HTTP 202). Cooling down 25s...")
-            time.sleep(25)
-            response = requests.get(url, headers=get_headers(), timeout=15)
+    for target in TARGETS:
+        for platform in PLATFORMS:
+            q = (
+                f"{platform['site_filter']}{target['category']} contractor "
+                f"{target['city']} {target['state']} {target['zip']} phone"
+            )
+            print(f"[*] [{platform['name']}] Searching: {target['category']} in {target['city']} {target['state']} ({target['zip']})...")
+            results = search_serper(q, stats)
 
-        if response.status_code != 200:
-            STATS["http_blocks"] += 1
-            print(f"  [-] Blocked/Failed (HTTP {response.status_code})")
-            return
+            for item in results:
+                title = item.get("title", "")
+                snippet = item.get("snippet", "")
+                link = item.get("link", "")
+                combined_text = f"{title} {snippet}"
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        results = soup.select(".result")
-        seen_names = set()
+                phone_match = PHONE_REGEX.search(combined_text)
+                email_match = EMAIL_REGEX.search(combined_text)
+                phone = phone_match.group(0) if phone_match else ""
+                email = email_match.group(0) if email_match else ""
 
-        for item in results:
-            title_el = item.select_one(".result__title a")
-            snippet_el = item.select_one(".result__snippet")
-            if not title_el:
-                continue
+                if not phone and not email:
+                    continue
 
-            raw_title = title_el.get_text(strip=True)
-            snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-            link = title_el.get("href", "")
+                business_name = clean_business_name(title, platform["name"])
+                payload = {
+                    "business_name": business_name,
+                    "category": target["category"],
+                    "phone": phone,
+                    "email": email,
+                    "city": target["city"],
+                    "state": target["state"],
+                    "zip": target["zip"],
+                    "source": platform["name"],
+                    "source_url": link,
+                    "notes": snippet[:250],
+                }
+                ingest_lead(payload, stats)
 
-            clean_name = re.sub(r"(-|\||:|>|•).*$", "", raw_title).strip()
-            if not is_valid_business(clean_name) or clean_name.lower() in seen_names:
-                continue
-
-            seen_names.add(clean_name.lower())
-            phone = extract_phone(snippet)
-            clean_domain = re.sub(r"[^\w]", "", clean_name.lower())[:18] or "leadcontact"
-            email = extract_email(snippet, clean_domain)
-
-            payload = {
-                "business_name": f"{clean_name} ({source_name})",
-                "category": category,
-                "zip_code": zip_code,
-                "phone": phone if phone else "N/A",
-                "email": email,
-                "address": f"{location}, FL {zip_code}",
-                "website": link if link.startswith("http") else f"https://www.{clean_domain}.com"
-            }
-
-            send_to_base44(payload, source_name)
             time.sleep(0.5)
 
-    except Exception as e:
-        STATS["rejected_errors"] += 1
-        print(f"  [-] Scrape Exception ({source_name}): {e}")
-
-if __name__ == "__main__":
-    print("=== Claim Heads B2B Lead Autopilot Run Started ===\n")
-
-    for target in SEARCH_TARGETS:
-        scrape_source(target, "Web Directory", "phone email contact")
-        time.sleep(random.uniform(7, 10))
-
-        scrape_source(target, "Facebook", "site:facebook.com")
-        time.sleep(random.uniform(7, 10))
-
-        scrape_source(target, "Nextdoor", "site:nextdoor.com/pages")
-        time.sleep(random.uniform(7, 10))
-
-        scrape_source(target, "Reddit", "site:reddit.com/r/Miami \"property management\" OR \"roofer\" OR \"HOA\"")
-        time.sleep(random.uniform(8, 12))
-
-    total_valid_seen = STATS["new_created"] + STATS["duplicates_skipped"]
-    if total_valid_seen == 0 or STATS["rejected_errors"] > 3:
-        run_status = "Failed"
-    elif STATS["http_blocks"] > 0 or STATS["rejected_errors"] > 0:
-        run_status = "Partial"
-    else:
-        run_status = "Success"
-
     print("\n================ RUN SUMMARY ================")
-    print(f"Status              : {run_status}")
-    print(f"New Leads Created   : {STATS['new_created']}")
-    print(f"Duplicates Skipped  : {STATS['duplicates_skipped']}")
-    print(f"By Source           : {STATS['by_source']}")
-    print(f"HTTP Rate-Limits    : {STATS['http_blocks']}")
-    print(f"Webhook/Net Errors  : {STATS['rejected_errors']}")
+    print(f"Status            : {'Success' if (stats['new_leads'] > 0 or stats['duplicates'] > 0) else 'Failed'}")
+    print(f"New Leads Created : {stats['new_leads']}")
+    print(f"Duplicates Skipped: {stats['duplicates']}")
+    print(f"By Source         : {stats['by_source']}")
+    print(f"HTTP Rate-Limits  : {stats['http_blocks']}")
+    print(f"Webhook/Net Errors: {stats['errors']}")
     print("=============================================")
 
-    report_run_to_dashboard(run_status)
-
-    if run_status == "Failed":
+    final_status = log_run_telemetry(stats)
+    if final_status == "Failed":
         print("CRITICAL: Workflow failed health check. Triggering GitHub alert!")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
